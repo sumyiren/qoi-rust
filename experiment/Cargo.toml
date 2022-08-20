@@ -1,0 +1,21 @@
+[package]
+name = "qoi-experiment"
+version = "0.1.0"
+edition = "2018"
+license = "MIT/Apache-2.0"
+authors = ["Ivan Smirnov <rust@ivan.smirnov.ie>"]
+publish = false
+
+[dependencies]
+# internal
+qoi = { path = "..", features = ["std"]}
+# external
+anyhow = "1.0"
+bytemuck = "1.7"
+c_vec = "2.0"
+png = "0.17"
+structopt = "0.3"
+walkdir = "2.3"
+
+[build-dependencies]
+cc = "1.0"

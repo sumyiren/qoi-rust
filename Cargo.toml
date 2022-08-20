@@ -26,7 +26,7 @@ reference = []  # follows reference encoder implementation precisely, but may be
 bytemuck = "1.7"
 
 [workspace]
-members = ["libqoi", "bench"]
+members = ["libqoi", "bench", "experiment"]
 
 [dev-dependencies]
 anyhow = "1.0"

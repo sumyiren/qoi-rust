@@ -113,6 +113,15 @@ pub fn encode_to_vec(data: impl AsRef<[u8]>, width: u32, height: u32) -> Result<
     Encoder::new(&data, width, height)?.encode_to_vec()
 }
 
+/// Encode the image into a newly allocated vector.
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[inline]
+pub fn encode_to_stream<W: Write>(
+    writer: &mut W,
+    data: impl AsRef<[u8]>, width: u32, height: u32) -> Result<usize> {
+    Encoder::new(&data, width, height)?.encode_to_stream(writer)
+}
+
 /// Encode QOI images into buffers or into streams.
 pub struct Encoder<'a> {
     data: &'a [u8],
