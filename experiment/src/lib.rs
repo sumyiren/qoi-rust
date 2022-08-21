@@ -139,6 +139,15 @@ fn test_rgba_image() {
     println!("{} qoi filesize: {}", filename, file_size)
 }
 
+#[test]
+fn test_decode() {
+    let filename = "dark_line".to_string();
+    let qoi_filename = format!("{}{}{}", "./", filename, ".qoi");
+    let qoi_vec = std::fs::read(qoi_filename).unwrap();
 
+    let (header, pixels) = qoi::decode_to_vec(qoi_vec).unwrap();
+    let rgba_img = RgbaImage::from_vec(header.width, header.height, pixels).unwrap();
+    rgba_img.save("./dark_line_from_qoi.png");
+}
 
 
