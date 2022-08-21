@@ -126,16 +126,14 @@ fn test_rgba_image() {
     let filename = "dark_line".to_string();
     let image_filename = format!("{}{}{}", "./", filename, ".png");
     let rgba_img = open_and_decode_image(&image_filename).unwrap();
-    let width = rgba_img.width();
-    let height = rgba_img.height();
-    let rgba_img_u8 = rgba_img.into_raw();
+    let rgba_img_u8 = rgba_img.as_raw();
 
     let qoi_filename = format!("{}{}{}", "./", filename, ".qoi");
     let qoi_file_path = Path::new(&qoi_filename);
     let qoi_file = File::create(qoi_file_path).unwrap();
 
     let mut writer = BufWriter::new(qoi_file);
-    qoi::encode_to_stream(&mut writer, rgba_img_u8, width, height);
+    qoi::encode_to_stream(&mut writer, rgba_img_u8, rgba_img.width(), rgba_img.height());
 
     let file_size = fs::metadata(qoi_file_path).unwrap().len();
     println!("{} qoi filesize: {}", filename, file_size)
