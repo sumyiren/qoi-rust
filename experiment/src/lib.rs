@@ -96,15 +96,15 @@ fn run_compression_to_file(filename: String) {
 }
 
 
-// #[test]
-// fn test_dark_compression() {
-//     run_compression_to_file("dark".to_string());
-// }
-//
-// #[test]
-// fn test_dark_line_compression() {
-//     run_compression_to_file("dark_line".to_string());
-// }
+#[test]
+fn test_dark_compression() {
+    run_compression_to_file("dark".to_string());
+}
+
+#[test]
+fn test_dark_line_compression() {
+    run_compression_to_file("dark_line".to_string());
+}
 
 #[test]
 fn test_dark_line2_compression() {

@@ -94,6 +94,7 @@ where
 
     let islands = Islands::try_new(&points, header.width, header.height)?;
     println!("number of islands:{}", islands.islands.len());
+    buf = islands.encode(buf)?;
     Ok(cap.saturating_sub(buf.capacity()))
 }
 

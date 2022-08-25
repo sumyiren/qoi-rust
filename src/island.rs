@@ -1,5 +1,6 @@
 use core::convert::TryInto;
 use std::collections::{HashMap, HashSet};
+use std::mem::transmute;
 
 use bytemuck::cast_slice;
 
@@ -7,7 +8,7 @@ use crate::consts::{QOI_HEADER_SIZE, QOI_MAGIC, QOI_PIXELS_MAX};
 use crate::encode_max_len;
 use crate::error::{Error, Result};
 use crate::types::{Channels, ColorSpace};
-use crate::utils::unlikely;
+use crate::utils::{unlikely, Writer};
 
 /// Image Islands: dimensions, channels, color space.
 pub type Point = (u32, u32);
@@ -27,7 +28,7 @@ pub struct Islands {
 impl Islands {
     /// Creates a island map
     #[inline]
-    pub fn try_new(points: &HashSet<Point>, width: u32, height: u32) -> Result<Self> {
+    pub(crate) fn try_new(points: &HashSet<Point>, width: u32, height: u32) -> Result<Self> {
 
         let mut islands: HashSet<Island> = HashSet::new();
         let mut used_points: HashSet<Point> = HashSet::new();
@@ -35,14 +36,15 @@ impl Islands {
         for point in points {
             if !used_points.contains(point) {
                 let mut island = Island {
-
                     top_left: None,
                     btm_right: None
                 };
                 dfs(&points, width, height, &mut used_points, &mut island, point);
                 // println!("island:{}, {}, {}, {}", island.top_left.unwrap().0, island.top_left.unwrap().1,
                 //          island.btm_right.unwrap().0, island.btm_right.unwrap().1);
-                islands.insert(island);
+                if island.top_left != None && island.btm_right != None {
+                    islands.insert(island);
+                }
             }
         }
 
@@ -50,6 +52,27 @@ impl Islands {
         Ok(Islands {
             islands
         })
+    }
+
+    /// Serializes the header into a bytes array.
+    #[inline]
+    pub(crate) fn encode<W: Writer>(&self, mut buf: W) -> Result<W> {
+
+        for island in &self.islands {
+            let top_left = island.top_left.unwrap();
+            let btm_right = island.btm_right.unwrap();
+
+            let bytes: [u8; 4] = unsafe { transmute(top_left.0.to_be()) };
+            buf = buf.write_many(&bytes).unwrap();
+            let bytes: [u8; 4] = unsafe { transmute(top_left.1.to_be()) };
+            buf = buf.write_many(&bytes).unwrap();
+            let bytes: [u8; 4] = unsafe { transmute(btm_right.0.to_be()) };
+            buf = buf.write_many(&bytes).unwrap();
+            let bytes: [u8; 4] = unsafe { transmute(btm_right.1.to_be()) };
+            buf = buf.write_many(&bytes).unwrap();
+        }
+
+        Ok(buf)
     }
 
 }

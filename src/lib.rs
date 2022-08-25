@@ -53,7 +53,7 @@
 //! allocations is disabled. There is an additional `alloc` feature that can
 //! be activated to bring back the support for heap allocations.
 
-#![forbid(unsafe_code)]
+// #![forbid(unsafe_code)]
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
 #![allow(
     clippy::inline_always,
