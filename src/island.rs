@@ -1,5 +1,5 @@
 use core::convert::TryInto;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::mem::transmute;
 
 use bytemuck::cast_slice;
@@ -39,12 +39,13 @@ impl Islands {
                     top_left: None,
                     btm_right: None
                 };
-                dfs(&points, width, height, &mut used_points, &mut island, point);
-                // println!("island:{}, {}, {}, {}", island.top_left.unwrap().0, island.top_left.unwrap().1,
-                //          island.btm_right.unwrap().0, island.btm_right.unwrap().1);
+                bfs(&points, width, height, &mut used_points, &mut island, point);
+                println!("island:{}, {}, {}, {}", island.top_left.unwrap().0, island.top_left.unwrap().1,
+                         island.btm_right.unwrap().0, island.btm_right.unwrap().1);
                 if island.top_left != None && island.btm_right != None {
                     islands.insert(island);
                 }
+                println!("points - used_points:{}, {}", points.len(), used_points.len());
             }
         }
 
@@ -77,49 +78,52 @@ impl Islands {
 
 }
 
-fn dfs(points: &HashSet<Point>, width: u32, height: u32, used_points: &mut HashSet<Point>, island: &mut Island, point: &Point) {
-    if points.contains(&point) && !used_points.contains(&point) {
+fn bfs(points: &HashSet<Point>, width: u32, height: u32, used_points: &mut HashSet<Point>, island: &mut Island, point: &Point) {
+    let mut q = VecDeque::new();
+    q.push_back(point.clone());
 
-        used_points.insert(point.clone());
+    while let Some(point) = q.pop_front() {
+        if points.contains(&point) && !used_points.contains(&point) {
+            used_points.insert(point.clone());
 
-        if let Some(mut top_left) = island.top_left {
-            if point.0 < top_left.0 {
-                island.top_left = Some((point.0, top_left.1));
+            if let Some(mut top_left) = island.top_left {
+                if point.0 < top_left.0 {
+                    island.top_left = Some((point.0, top_left.1));
+                }
+                if point.1 < top_left.1 {
+                    island.top_left = Some((top_left.0, point.1));
+                }
+            } else {
+                island.top_left = Some(point.clone());
             }
-            if point.1 < top_left.1 {
-                island.top_left = Some((top_left.0, point.1));
+
+            if let Some(mut btm_right) = island.btm_right {
+                if point.0 > btm_right.0 {
+                    island.btm_right = Some((point.0, btm_right.1));
+                }
+                if point.1 > btm_right.1 {
+                    island.btm_right = Some((btm_right.0, point.1));
+                }
+            } else {
+                island.btm_right = Some(point.clone());
             }
-        } else {
-            island.top_left = Some(point.clone());
-        }
 
-        if let Some(mut btm_right) = island.btm_right {
-            if point.0 > btm_right.0 {
-                island.btm_right = Some((point.0, btm_right.1));
+            if point.0 > 0 {
+                q.push_back((point.0 - 1, point.1));
             }
-            if point.1 > btm_right.1 {
-                island.btm_right = Some((btm_right.0, point.1));
+
+            // if point.0 < width {
+                q.push_back((point.0 + 1, point.1));
+            // }
+
+            if point.1 > 0 {
+                q.push_back((point.0, point.1 - 1));
             }
-        } else {
-            island.btm_right = Some(point.clone());
-        }
 
-        if point.0 > 0 {
-            dfs(points, width, height, used_points, island,&(point.0-1, point.1));
-        }
-
-        if point.0 < width {
-            dfs(points, width, height, used_points, island, &(point.0+1, point.1));
-        }
-
-        if point.1 > 0 {
-            dfs(points, width, height, used_points, island, &(point.0, point.1-1));
-        }
-
-        if point.1 < height {
-            dfs(points, width, height, used_points, island, &(point.0, point.1+1));
+            // if point.1 < height {
+                q.push_back((point.0, point.1 + 1));
+            // }
         }
     }
-
 }
 
