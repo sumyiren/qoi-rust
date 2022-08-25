@@ -150,4 +150,15 @@ fn test_decode() {
     rgba_img.save("./dark_line_from_qoi.png");
 }
 
+#[test]
+fn test_islands() {
+    let filename = "diff_tmp".to_string();
+    let image_filename = format!("{}{}{}", "./", filename, ".png");
+    let rgba_img = open_and_decode_image(&image_filename).unwrap();
+    let rgba_img_u8 = rgba_img.as_raw();
+
+    qoi::encode_to_vec( rgba_img_u8, rgba_img.width(), rgba_img.height());
+}
+
+
 

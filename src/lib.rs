@@ -69,11 +69,13 @@
 extern crate alloc;
 #[cfg(any(feature = "std", test))]
 extern crate std as alloc;
+extern crate core;
 
 mod decode;
 mod encode;
 mod error;
 mod header;
+mod island;
 mod pixel;
 mod types;
 mod utils;

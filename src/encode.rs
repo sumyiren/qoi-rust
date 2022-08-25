@@ -1,6 +1,7 @@
 #[cfg(any(feature = "std", feature = "alloc"))]
 use alloc::{vec, vec::Vec};
 use core::convert::TryFrom;
+use std::collections::HashSet;
 #[cfg(feature = "std")]
 use std::io::Write;
 
@@ -9,6 +10,7 @@ use bytemuck::Pod;
 use crate::consts::{QOI_HEADER_SIZE, QOI_OP_INDEX, QOI_OP_RUN, QOI_PADDING, QOI_PADDING_SIZE};
 use crate::error::{Error, Result};
 use crate::header::Header;
+use crate::island::{Islands, Point};
 use crate::pixel::{Pixel, SupportedChannels};
 use crate::types::{Channels, ColorSpace};
 #[cfg(feature = "std")]
@@ -16,7 +18,7 @@ use crate::utils::GenericWriter;
 use crate::utils::{unlikely, BytesMut, Writer};
 
 #[allow(clippy::cast_possible_truncation, unused_assignments, unused_variables)]
-fn encode_impl<W: Writer, const N: usize>(mut buf: W, data: &[u8]) -> Result<usize>
+fn encode_impl<W: Writer, const N: usize>(mut buf: W, data: &[u8], header: &Header) -> Result<usize>
 where
     Pixel<N>: SupportedChannels,
     [u8; N]: Pod,
@@ -28,12 +30,29 @@ where
     let mut hash_prev = px_prev.hash_index();
     let mut run = 0_u8;
     let mut px = Pixel::<N>::new().with_a(0xff);
+    let zero_px = Pixel::<N>::new();
     let mut index_allowed = false;
 
     let n_pixels = data.len() / N;
 
+    let mut points: HashSet<Point> = HashSet::new();
+    let mut row = 0;
+    let mut col = 0;
+
     for (i, chunk) in data.chunks_exact(N).enumerate() {
+
+        col = i - (row * header.width) as usize;
+        if col >= header.width as usize {
+            row += 1;
+            col = 0;
+        }
+
         px.read(chunk);
+
+        if px != zero_px {
+            points.insert((row, col as u32));
+        }
+
         if px == px_prev {
             run += 1;
             if run == 62 || unlikely(i == n_pixels - 1) {
@@ -72,14 +91,17 @@ where
     }
 
     buf = buf.write_many(&QOI_PADDING)?;
+
+    let islands = Islands::try_new(&points, header.width, header.height)?;
+    println!("number of islands:{}", islands.islands.len());
     Ok(cap.saturating_sub(buf.capacity()))
 }
 
 #[inline]
-fn encode_impl_all<W: Writer>(out: W, data: &[u8], channels: Channels) -> Result<usize> {
-    match channels {
-        Channels::Rgb => encode_impl::<_, 3>(out, data),
-        Channels::Rgba => encode_impl::<_, 4>(out, data),
+fn encode_impl_all<W: Writer>(out: W, data: &[u8], header: &Header) -> Result<usize> {
+    match header.channels {
+        Channels::Rgb => encode_impl::<_, 3>(out, data, header),
+        Channels::Rgba => encode_impl::<_, 4>(out, data, header),
     }
 }
 
@@ -190,7 +212,7 @@ impl<'a> Encoder<'a> {
         }
         let (head, tail) = buf.split_at_mut(QOI_HEADER_SIZE); // can't panic
         head.copy_from_slice(&self.header.encode());
-        let n_written = encode_impl_all(BytesMut::new(tail), self.data, self.header.channels)?;
+        let n_written = encode_impl_all(BytesMut::new(tail), self.data, &self.header)?;
         Ok(QOI_HEADER_SIZE + n_written)
     }
 
@@ -213,7 +235,7 @@ impl<'a> Encoder<'a> {
     pub fn encode_to_stream<W: Write>(&self, writer: &mut W) -> Result<usize> {
         writer.write_all(&self.header.encode())?;
         let n_written =
-            encode_impl_all(GenericWriter::new(writer), self.data, self.header.channels)?;
+            encode_impl_all(GenericWriter::new(writer), self.data, &self.header)?;
         Ok(n_written + QOI_HEADER_SIZE)
     }
 }
