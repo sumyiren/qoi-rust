@@ -84,12 +84,11 @@ mod utils;
 pub mod consts;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-pub use crate::decode::decode_to_vec;
+pub use crate::decode::decode_qoi;
 pub use crate::decode::{decode_header, decode_to_buf, Decoder};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use crate::encode::encode_to_vec;
-pub use crate::encode::encode_to_stream;
 pub use crate::encode::{encode_max_len, encode_to_buf, Encoder};
 
 pub use crate::error::{Error, Result};

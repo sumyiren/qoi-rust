@@ -12,6 +12,7 @@ use crate::consts::{
 };
 use crate::error::{Error, Result};
 use crate::header::Header;
+use crate::island::Islands;
 use crate::pixel::{Pixel, SupportedChannels};
 use crate::types::Channels;
 use crate::utils::{cold, unlikely};
@@ -22,7 +23,7 @@ const QOI_OP_DIFF_END: u8 = QOI_OP_DIFF | 0x3f;
 const QOI_OP_LUMA_END: u8 = QOI_OP_LUMA | 0x3f;
 
 #[inline]
-fn decode_impl_slice<const N: usize, const RGBA: bool>(data: &[u8], out: &mut [u8]) -> Result<usize>
+fn decode_impl_slice<const N: usize, const RGBA: bool>(data: &[u8], out: &mut [u8], n_pixels: u32) -> Result<usize>
 where
     Pixel<N>: SupportedChannels,
     [u8; N]: Pod,
@@ -35,7 +36,12 @@ where
     let mut px = Pixel::<N>::new().with_a(0xff);
     let mut px_rgba: Pixel<4>;
 
+    let mut pixel_count = 0;
     while let [px_out, ptail @ ..] = pixels {
+        pixel_count += 1;
+        if pixel_count > n_pixels {
+            break
+        }
         pixels = ptail;
         match data {
             [b1 @ QOI_OP_INDEX..=QOI_OP_INDEX_END, dtail @ ..] => {
@@ -83,24 +89,24 @@ where
         *px_out = px.into();
     }
 
-    if unlikely(data.len() < QOI_PADDING_SIZE) {
-        return Err(Error::UnexpectedBufferEnd);
-    } else if unlikely(data[..QOI_PADDING_SIZE] != QOI_PADDING) {
-        return Err(Error::InvalidPadding);
-    }
+    // if unlikely(data.len() < QOI_PADDING_SIZE) {
+    //     return Err(Error::UnexpectedBufferEnd);
+    // } else if unlikely(data[..QOI_PADDING_SIZE] != QOI_PADDING) {
+    //     return Err(Error::InvalidPadding);
+    // }
 
-    Ok(data_len.saturating_sub(data.len()).saturating_sub(QOI_PADDING_SIZE))
+    Ok(data_len.saturating_sub(data.len()))
 }
 
 #[inline]
 fn decode_impl_slice_all(
-    data: &[u8], out: &mut [u8], channels: u8, src_channels: u8,
+    data: &[u8], out: &mut [u8], n_pixels: u32, channels: u8, src_channels: u8,
 ) -> Result<usize> {
     match (channels, src_channels) {
-        (3, 3) => decode_impl_slice::<3, false>(data, out),
-        (3, 4) => decode_impl_slice::<3, true>(data, out),
-        (4, 3) => decode_impl_slice::<4, false>(data, out),
-        (4, 4) => decode_impl_slice::<4, true>(data, out),
+        (3, 3) => decode_impl_slice::<3, false>(data, out, n_pixels),
+        (3, 4) => decode_impl_slice::<3, true>(data, out, n_pixels),
+        (4, 3) => decode_impl_slice::<4, false>(data, out, n_pixels),
+        (4, 4) => decode_impl_slice::<4, true>(data, out, n_pixels),
         _ => {
             cold();
             Err(Error::InvalidChannels { channels })
@@ -125,10 +131,11 @@ pub fn decode_to_buf(buf: impl AsMut<[u8]>, data: impl AsRef<[u8]>) -> Result<He
 /// the number of channels, use [`Decoder::with_channels`].
 #[cfg(any(feature = "std", feature = "alloc"))]
 #[inline]
-pub fn decode_to_vec(data: impl AsRef<[u8]>) -> Result<(Header, Vec<u8>)> {
+pub fn decode_qoi(data: impl AsRef<[u8]>) -> Result<(Header, Vec<u8>, Islands)> {
     let mut decoder = Decoder::new(&data)?;
     let out = decoder.decode_to_vec()?;
-    Ok((*decoder.header(), out))
+    let islands = decoder.decode_to_islands()?;
+    Ok((*decoder.header(), out, islands))
 }
 
 /// Decode the image header from a slice of bytes.
@@ -137,97 +144,98 @@ pub fn decode_header(data: impl AsRef<[u8]>) -> Result<Header> {
     Header::decode(data)
 }
 
-#[cfg(any(feature = "std"))]
-#[inline]
-fn decode_impl_stream<R: Read, const N: usize, const RGBA: bool>(
-    data: &mut R, out: &mut [u8],
-) -> Result<()>
-where
-    Pixel<N>: SupportedChannels,
-    [u8; N]: Pod,
-{
-    let mut pixels = cast_slice_mut::<_, [u8; N]>(out);
+// #[cfg(any(feature = "std"))]
+// #[inline]
+// fn decode_impl_stream<R: Read, const N: usize, const RGBA: bool>(
+//     data: &mut R, out: &mut [u8],
+// ) -> Result<()>
+// where
+//     Pixel<N>: SupportedChannels,
+//     [u8; N]: Pod,
+// {
+//     let mut pixels = cast_slice_mut::<_, [u8; N]>(out);
+//
+//     let mut index = [Pixel::<N>::new(); 256];
+//     let mut px = Pixel::<N>::new().with_a(0xff);
+//
+//     while let [px_out, ptail @ ..] = pixels {
+//         pixels = ptail;
+//         let mut p = [0];
+//         data.read_exact(&mut p)?;
+//         let [b1] = p;
+//         match b1 {
+//             QOI_OP_INDEX..=QOI_OP_INDEX_END => {
+//                 px = index[b1 as usize];
+//                 *px_out = px.into();
+//                 continue;
+//             }
+//             QOI_OP_RGB => {
+//                 let mut p = [0; 3];
+//                 data.read_exact(&mut p)?;
+//                 px.update_rgb(p[0], p[1], p[2]);
+//             }
+//             QOI_OP_RGBA if RGBA => {
+//                 let mut p = [0; 4];
+//                 data.read_exact(&mut p)?;
+//                 px.update_rgba(p[0], p[1], p[2], p[3]);
+//             }
+//             QOI_OP_RUN..=QOI_OP_RUN_END => {
+//                 *px_out = px.into();
+//                 let run = ((b1 & 0x3f) as usize).min(pixels.len());
+//                 let (phead, ptail) = pixels.split_at_mut(run); // can't panic
+//                 phead.fill(px.into());
+//                 pixels = ptail;
+//                 continue;
+//             }
+//             QOI_OP_DIFF..=QOI_OP_DIFF_END => {
+//                 px.update_diff(b1);
+//             }
+//             QOI_OP_LUMA..=QOI_OP_LUMA_END => {
+//                 let mut p = [0];
+//                 data.read_exact(&mut p)?;
+//                 let [b2] = p;
+//                 px.update_luma(b1, b2);
+//             }
+//             _ => {
+//                 cold();
+//             }
+//         }
+//
+//         index[px.hash_index() as usize] = px;
+//         *px_out = px.into();
+//     }
+//
+//     let mut p = [0_u8; QOI_PADDING_SIZE];
+//     data.read_exact(&mut p)?;
+//     if unlikely(p != QOI_PADDING) {
+//         return Err(Error::InvalidPadding);
+//     }
+//
+//     Ok(())
+// }
 
-    let mut index = [Pixel::<N>::new(); 256];
-    let mut px = Pixel::<N>::new().with_a(0xff);
-
-    while let [px_out, ptail @ ..] = pixels {
-        pixels = ptail;
-        let mut p = [0];
-        data.read_exact(&mut p)?;
-        let [b1] = p;
-        match b1 {
-            QOI_OP_INDEX..=QOI_OP_INDEX_END => {
-                px = index[b1 as usize];
-                *px_out = px.into();
-                continue;
-            }
-            QOI_OP_RGB => {
-                let mut p = [0; 3];
-                data.read_exact(&mut p)?;
-                px.update_rgb(p[0], p[1], p[2]);
-            }
-            QOI_OP_RGBA if RGBA => {
-                let mut p = [0; 4];
-                data.read_exact(&mut p)?;
-                px.update_rgba(p[0], p[1], p[2], p[3]);
-            }
-            QOI_OP_RUN..=QOI_OP_RUN_END => {
-                *px_out = px.into();
-                let run = ((b1 & 0x3f) as usize).min(pixels.len());
-                let (phead, ptail) = pixels.split_at_mut(run); // can't panic
-                phead.fill(px.into());
-                pixels = ptail;
-                continue;
-            }
-            QOI_OP_DIFF..=QOI_OP_DIFF_END => {
-                px.update_diff(b1);
-            }
-            QOI_OP_LUMA..=QOI_OP_LUMA_END => {
-                let mut p = [0];
-                data.read_exact(&mut p)?;
-                let [b2] = p;
-                px.update_luma(b1, b2);
-            }
-            _ => {
-                cold();
-            }
-        }
-
-        index[px.hash_index() as usize] = px;
-        *px_out = px.into();
-    }
-
-    let mut p = [0_u8; QOI_PADDING_SIZE];
-    data.read_exact(&mut p)?;
-    if unlikely(p != QOI_PADDING) {
-        return Err(Error::InvalidPadding);
-    }
-
-    Ok(())
-}
-
-#[cfg(feature = "std")]
-#[inline]
-fn decode_impl_stream_all<R: Read>(
-    data: &mut R, out: &mut [u8], channels: u8, src_channels: u8,
-) -> Result<()> {
-    match (channels, src_channels) {
-        (3, 3) => decode_impl_stream::<_, 3, false>(data, out),
-        (3, 4) => decode_impl_stream::<_, 3, true>(data, out),
-        (4, 3) => decode_impl_stream::<_, 4, false>(data, out),
-        (4, 4) => decode_impl_stream::<_, 4, true>(data, out),
-        _ => {
-            cold();
-            Err(Error::InvalidChannels { channels })
-        }
-    }
-}
+// #[cfg(feature = "std")]
+// #[inline]
+// fn decode_impl_stream_all<R: Read>(
+//     data: &mut R, out: &mut [u8], channels: u8, src_channels: u8,
+// ) -> Result<()> {
+//     match (channels, src_channels) {
+//         (3, 3) => decode_impl_stream::<_, 3, false>(data, out),
+//         (3, 4) => decode_impl_stream::<_, 3, true>(data, out),
+//         (4, 3) => decode_impl_stream::<_, 4, false>(data, out),
+//         (4, 4) => decode_impl_stream::<_, 4, true>(data, out),
+//         _ => {
+//             cold();
+//             Err(Error::InvalidChannels { channels })
+//         }
+//     }
+// }
 
 #[doc(hidden)]
 pub trait Reader: Sized {
     fn decode_header(&mut self) -> Result<Header>;
-    fn decode_image(&mut self, out: &mut [u8], channels: u8, src_channels: u8) -> Result<()>;
+    fn decode_image(&mut self, out: &mut [u8], n_pixels: u32, channels: u8, src_channels: u8) -> Result<()>;
+    fn decode_islands(&mut self, n_islands: u32) -> Result<Islands>;
 }
 
 struct Bytes<'a>(&'a [u8]);
@@ -253,27 +261,32 @@ impl<'a> Reader for Bytes<'a> {
     }
 
     #[inline]
-    fn decode_image(&mut self, out: &mut [u8], channels: u8, src_channels: u8) -> Result<()> {
-        let n_read = decode_impl_slice_all(self.0, out, channels, src_channels)?;
+    fn decode_image(&mut self, out: &mut [u8], n_pixels: u32, channels: u8, src_channels: u8) -> Result<()> {
+        let n_read = decode_impl_slice_all(&self.0[QOI_HEADER_SIZE..], out, n_pixels, channels, src_channels)?;
         self.0 = &self.0[n_read..];
         Ok(())
     }
-}
-
-#[cfg(feature = "std")]
-impl<R: Read> Reader for R {
-    #[inline]
-    fn decode_header(&mut self) -> Result<Header> {
-        let mut b = [0; QOI_HEADER_SIZE];
-        self.read_exact(&mut b)?;
-        Header::decode(b)
-    }
 
     #[inline]
-    fn decode_image(&mut self, out: &mut [u8], channels: u8, src_channels: u8) -> Result<()> {
-        decode_impl_stream_all(self, out, channels, src_channels)
+    fn decode_islands(&mut self, n_islands: u32) -> Result<Islands> {
+        Islands::decode(self.0, n_islands)
     }
 }
+
+// #[cfg(feature = "std")]
+// impl<R: Read> Reader for R {
+//     #[inline]
+//     fn decode_header(&mut self) -> Result<Header> {
+//         let mut b = [0; QOI_HEADER_SIZE];
+//         self.read_exact(&mut b)?;
+//         Header::decode(b)
+//     }
+//
+//     #[inline]
+//     fn decode_image(&mut self, out: &mut [u8], channels: u8, src_channels: u8) -> Result<()> {
+//         decode_impl_stream_all(self, out, channels, src_channels)
+//     }
+// }
 
 /// Decode QOI images from slices or from streams.
 #[derive(Clone)]
@@ -305,17 +318,6 @@ impl<'a> Decoder<Bytes<'a>> {
 
 #[cfg(feature = "std")]
 impl<R: Read> Decoder<R> {
-    /// Creates a new decoder from a generic reader that implements [`Read`](std::io::Read).
-    ///
-    /// The header will be decoded immediately upon construction.
-    ///
-    /// Note: while it's possible to pass a `&[u8]` slice here since it implements `Read`, it
-    /// would be more efficient to use a specialized constructor instead: [`Decoder::new`].
-    #[inline]
-    pub fn from_stream(reader: R) -> Result<Self> {
-        Self::new_impl(reader)
-    }
-
     /// Returns an immutable reference to the underlying reader.
     #[inline]
     pub fn reader(&self) -> &R {
@@ -380,7 +382,7 @@ impl<R: Reader> Decoder<R> {
         if unlikely(buf.len() < size) {
             return Err(Error::OutputBufferTooSmall { size: buf.len(), required: size });
         }
-        self.reader.decode_image(buf, self.channels.as_u8(), self.header.channels.as_u8())?;
+        self.reader.decode_image(buf, self.header.n_pixels() as u32, self.channels.as_u8(), self.header.channels.as_u8())?;
         Ok(size)
     }
 
@@ -391,5 +393,13 @@ impl<R: Reader> Decoder<R> {
         let mut out = vec![0; self.header.n_pixels() * self.channels.as_u8() as usize];
         let _ = self.decode_to_buf(&mut out)?;
         Ok(out)
+    }
+
+    /// Decodes the image into a newly allocated vector of bytes and returns it.
+    #[cfg(any(feature = "std", feature = "alloc"))]
+    #[inline]
+    pub fn decode_to_islands(&mut self) -> Result<Islands> {
+        let islands = self.reader.decode_islands(self.header.n_islands() as u32)?;
+        Ok(islands)
     }
 }

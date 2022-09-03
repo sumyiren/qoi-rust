@@ -18,7 +18,7 @@ use crate::utils::GenericWriter;
 use crate::utils::{unlikely, BytesMut, Writer};
 
 #[allow(clippy::cast_possible_truncation, unused_assignments, unused_variables)]
-fn encode_impl<W: Writer, const N: usize>(mut buf: W, data: &[u8], header: &Header) -> Result<usize>
+fn encode_impl<W: Writer, const N: usize>(mut buf: W, data: &[u8], header: &Header) -> Result<(usize, usize)>
 where
     Pixel<N>: SupportedChannels,
     [u8; N]: Pod,
@@ -38,6 +38,10 @@ where
     let mut points: HashSet<Point> = HashSet::new();
     let mut row = 0;
     let mut col = 0;
+    //
+    // // let mut image_encoding_buf = BytesMut::new(vec![0_u8; cap].as_mut());\
+    // let mut image_encoding_vec = vec![0_u8; cap];
+    // let mut image_encoding_buf = BytesMut::new(image_encoding_vec.as_mut());
 
     for (i, chunk) in data.chunks_exact(N).enumerate() {
 
@@ -57,6 +61,7 @@ where
             run += 1;
             if run == 62 || unlikely(i == n_pixels - 1) {
                 buf = buf.write_one(QOI_OP_RUN | (run - 1))?;
+                // image_encoding_buf = image_encoding_buf.write_one(QOI_OP_RUN | (run - 1));
                 run = 0;
             }
         } else {
@@ -73,6 +78,7 @@ where
                 #[cfg(feature = "reference")]
                 {
                     buf = buf.write_one(QOI_OP_RUN | (run - 1))?;
+                    // image_encoding_buf = image_encoding_buf.write_one(QOI_OP_RUN | (run - 1));
                 }
                 run = 0;
             }
@@ -82,24 +88,27 @@ where
             let index_px = &mut index[hash_prev as usize];
             if *index_px == px_rgba {
                 buf = buf.write_one(QOI_OP_INDEX | hash_prev)?;
+                // image_encoding_buf = image_encoding_buf.write_one(QOI_OP_INDEX | hash_prev);
             } else {
                 *index_px = px_rgba;
                 buf = px.encode_into(px_prev, buf)?;
+                // image_encoding_buf = px.encode_into(px_prev, image_encoding_buf)?;
             }
             px_prev = px;
         }
     }
 
+    let islands = Islands::try_new(&points, header.width, header.height)?;
+    buf = islands.encode(buf)?;
+    // buf = buf.write_many(image_encoding_vec.as_mut())?;
     buf = buf.write_many(&QOI_PADDING)?;
 
-    let islands = Islands::try_new(&points, header.width, header.height)?;
-    println!("number of islands:{}", islands.islands.len());
-    buf = islands.encode(buf)?;
-    Ok(cap.saturating_sub(buf.capacity()))
+    // println!("number of islands:{}", islands.islands.len());
+    Ok((cap.saturating_sub(buf.capacity()), islands.islands.len()))
 }
 
 #[inline]
-fn encode_impl_all<W: Writer>(out: W, data: &[u8], header: &Header) -> Result<usize> {
+fn encode_impl_all<W: Writer>(out: W, data: &[u8], header: &Header) -> Result<(usize, usize)> {
     match header.channels {
         Channels::Rgb => encode_impl::<_, 3>(out, data, header),
         Channels::Rgba => encode_impl::<_, 4>(out, data, header),
@@ -137,13 +146,13 @@ pub fn encode_to_vec(data: impl AsRef<[u8]>, width: u32, height: u32) -> Result<
 }
 
 /// Encode the image into a newly allocated vector.
-#[cfg(any(feature = "alloc", feature = "std"))]
-#[inline]
-pub fn encode_to_stream<W: Write>(
-    writer: &mut W,
-    data: impl AsRef<[u8]>, width: u32, height: u32) -> Result<usize> {
-    Encoder::new(&data, width, height)?.encode_to_stream(writer)
-}
+// #[cfg(any(feature = "alloc", feature = "std"))]
+// #[inline]
+// pub fn encode_to_stream<W: Write>(
+//     writer: &mut W,
+//     data: impl AsRef<[u8]>, width: u32, height: u32) -> Result<usize> {
+//     Encoder::new(&data, width, height)?.encode_to_stream(writer)
+// }
 
 /// Encode QOI images into buffers or into streams.
 pub struct Encoder<'a> {
@@ -161,7 +170,7 @@ impl<'a> Encoder<'a> {
     pub fn new(data: &'a (impl AsRef<[u8]> + ?Sized), width: u32, height: u32) -> Result<Self> {
         let data = data.as_ref();
         let mut header =
-            Header::try_new(width, height, Channels::default(), ColorSpace::default())?;
+            Header::try_new(width, height, 0,Channels::default(), ColorSpace::default())?;
         let size = data.len();
         let n_channels = size / header.n_pixels();
         if header.n_pixels() * n_channels != size {
@@ -205,38 +214,39 @@ impl<'a> Encoder<'a> {
     ///
     /// The minimum size of the buffer can be found via [`Encoder::required_buf_len`].
     #[inline]
-    pub fn encode_to_buf(&self, mut buf: impl AsMut<[u8]>) -> Result<usize> {
+    pub fn encode_to_buf(&mut self, mut buf: impl AsMut<[u8]>) -> Result<usize> {
         let buf = buf.as_mut();
         let size_required = self.required_buf_len();
         if unlikely(buf.len() < size_required) {
             return Err(Error::OutputBufferTooSmall { size: buf.len(), required: size_required });
         }
         let (head, tail) = buf.split_at_mut(QOI_HEADER_SIZE); // can't panic
+        let (n_written, n_islands) = encode_impl_all(BytesMut::new(tail), self.data, &self.header)?;
+        self.header.n_islands = n_islands as u32;
         head.copy_from_slice(&self.header.encode());
-        let n_written = encode_impl_all(BytesMut::new(tail), self.data, &self.header)?;
         Ok(QOI_HEADER_SIZE + n_written)
     }
 
     /// Encodes the image into a newly allocated vector of bytes and returns it.
     #[cfg(any(feature = "alloc", feature = "std"))]
     #[inline]
-    pub fn encode_to_vec(&self) -> Result<Vec<u8>> {
+    pub fn encode_to_vec(&mut self) -> Result<Vec<u8>> {
         let mut out = vec![0_u8; self.required_buf_len()];
         let size = self.encode_to_buf(&mut out)?;
         out.truncate(size);
         Ok(out)
     }
 
-    /// Encodes the image directly to a generic writer that implements [`Write`](std::io::Write).
-    ///
-    /// Note: while it's possible to pass a `&mut [u8]` slice here since it implements `Write`,
-    /// it would more effficient to use a specialized method instead: [`Encoder::encode_to_buf`].
-    #[cfg(feature = "std")]
-    #[inline]
-    pub fn encode_to_stream<W: Write>(&self, writer: &mut W) -> Result<usize> {
-        writer.write_all(&self.header.encode())?;
-        let n_written =
-            encode_impl_all(GenericWriter::new(writer), self.data, &self.header)?;
-        Ok(n_written + QOI_HEADER_SIZE)
-    }
+    // Encodes the image directly to a generic writer that implements [`Write`](std::io::Write).
+    //
+    // Note: while it's possible to pass a `&mut [u8]` slice here since it implements `Write`,
+    // it would more effficient to use a specialized method instead: [`Encoder::encode_to_buf`].
+    // #[cfg(feature = "std")]
+    // #[inline]
+    // pub fn encode_to_stream<W: Write>(&self, writer: &mut W) -> Result<usize> {
+    //     writer.write_all(&self.header.encode())?;
+    //     let (n_written, n_islands) =
+    //         encode_impl_all(GenericWriter::new(writer), self.data, &self.header)?;
+    //     Ok(n_written + QOI_HEADER_SIZE)
+    // }
 }

@@ -40,12 +40,12 @@ impl Islands {
                     btm_right: None
                 };
                 bfs(&points, width, height, &mut used_points, &mut island, point);
-                println!("island:{}, {}, {}, {}", island.top_left.unwrap().0, island.top_left.unwrap().1,
-                         island.btm_right.unwrap().0, island.btm_right.unwrap().1);
+                // println!("island:{}, {}, {}, {}", island.top_left.unwrap().0, island.top_left.unwrap().1,
+                //          island.btm_right.unwrap().0, island.btm_right.unwrap().1);
                 if island.top_left != None && island.btm_right != None {
                     islands.insert(island);
                 }
-                println!("points - used_points:{}, {}", points.len(), used_points.len());
+                // println!("points - used_points:{}, {}", points.len(), used_points.len());
             }
         }
 
@@ -76,6 +76,35 @@ impl Islands {
         Ok(buf)
     }
 
+    /// Deserializes the header from a byte array.
+    #[inline]
+    pub(crate) fn decode(data: impl AsRef<[u8]>, n_islands: u32) -> Result<Self> {
+
+        let chunk_size = 16;
+        let data = &data.as_ref();
+
+        let mut islands: HashSet<Island> = Default::default();
+        let chunks_iter = data.chunks(chunk_size);
+
+        let mut islands_count = 0;
+        for chunk in chunks_iter {
+            islands_count += 1;
+            if islands_count > n_islands {
+                break
+            }
+            let v = cast_slice::<_, [u8; 4]>(&chunk);
+            let top_left = (u32::from_be_bytes(v[0]), u32::from_be_bytes(v[1]));
+            let btm_right = (u32::from_be_bytes(v[2]), u32::from_be_bytes(v[3]));
+            let island = Island {
+                top_left: Some(top_left),
+                btm_right: Some(btm_right)
+            };
+            islands.insert(island);
+        }
+
+        // Self::try_new(width, height, channels, colorspace)
+        Ok(Islands { islands })
+    }
 }
 
 fn bfs(points: &HashSet<Point>, width: u32, height: u32, used_points: &mut HashSet<Point>, island: &mut Island, point: &Point) {
