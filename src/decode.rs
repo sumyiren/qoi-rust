@@ -78,9 +78,9 @@ where
             }
             _ => {
                 cold();
-                if unlikely(data.len() < QOI_PADDING_SIZE) {
-                    return Err(Error::UnexpectedBufferEnd);
-                }
+                // if unlikely(data.len() < QOI_PADDING_SIZE) {
+                //     return Err(Error::UnexpectedBufferEnd);
+                // }
             }
         }
 

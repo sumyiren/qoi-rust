@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use image::io::Reader as ImageIoReader;
@@ -89,7 +89,8 @@ fn run_compression_to_file(filename: String) {
     let qoi_file = File::create(qoi_file_path).unwrap();
 
     let mut writer = BufWriter::new(qoi_file);
-    qoi::encode_to_stream(&mut writer, image.data, image.width, image.height);
+    let mut vec = qoi::encode_to_vec(image.data, image.width, image.height).unwrap();
+    writer.write_all(vec.as_mut());
 
     let file_size = fs::metadata(qoi_file_path).unwrap().len();
     println!("{} qoi filesize: {}", filename, file_size)
@@ -133,7 +134,8 @@ fn test_rgba_image() {
     let qoi_file = File::create(qoi_file_path).unwrap();
 
     let mut writer = BufWriter::new(qoi_file);
-    qoi::encode_to_stream(&mut writer, rgba_img_u8, rgba_img.width(), rgba_img.height());
+    let mut vec = qoi::encode_to_vec(rgba_img_u8, rgba_img.width(), rgba_img.height()).unwrap();
+    writer.write_all(vec.as_mut());
 
     let file_size = fs::metadata(qoi_file_path).unwrap().len();
     println!("{} qoi filesize: {}", filename, file_size)
@@ -142,13 +144,40 @@ fn test_rgba_image() {
 #[test]
 fn test_decode() {
     let filename = "dark_line".to_string();
+    run_compression_to_file("dark_line".to_string());
     let qoi_filename = format!("{}{}{}", "./", filename, ".qoi");
     let qoi_vec = std::fs::read(qoi_filename).unwrap();
 
-    let (header, pixels) = qoi::decode_to_vec(qoi_vec).unwrap();
+    let (header, pixels, islands) = qoi::decode_qoi(qoi_vec).unwrap();
     let rgba_img = RgbaImage::from_vec(header.width, header.height, pixels).unwrap();
     rgba_img.save("./dark_line_from_qoi.png");
 }
+
+#[test]
+fn test_decode2() {
+    let filename = "dark_line2".to_string();
+    run_compression_to_file("dark_line2".to_string());
+    let qoi_filename = format!("{}{}{}", "./", filename, ".qoi");
+    let qoi_vec = std::fs::read(qoi_filename).unwrap();
+
+    let (header, pixels, islands) = qoi::decode_qoi(qoi_vec).unwrap();
+    let rgba_img = RgbaImage::from_vec(header.width, header.height, pixels).unwrap();
+    rgba_img.save("./dark_line2_from_qoi.png");
+}
+
+#[test]
+fn test_decode3() {
+    let filename = "4b".to_string();
+    run_compression_to_file("4b".to_string());
+    let qoi_filename = format!("{}{}{}", "./", filename, ".qoi");
+    let qoi_vec = std::fs::read(qoi_filename).unwrap();
+
+    let (header, pixels, islands) = qoi::decode_qoi(qoi_vec).unwrap();
+    let rgba_img = RgbaImage::from_vec(header.width, header.height, pixels).unwrap();
+    rgba_img.save("./4b_from_qoi.png");
+}
+
+
 
 #[test]
 fn test_islands() {
