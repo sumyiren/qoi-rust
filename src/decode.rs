@@ -39,9 +39,7 @@ where
     let mut encode_count = 0;
     while let [px_out, ptail @ ..] = pixels {
         encode_count += 1;
-        println!("{}, {}", encode_count, n_encode);
         if encode_count > n_encode {
-            println!("{}", encode_count);
             break
         }
         pixels = ptail;
