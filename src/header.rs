@@ -21,6 +21,8 @@ pub struct Header {
     /// Image height in pixels
     pub height: u32,
     /// Number of islands
+    pub n_encode: u32,
+    /// Number of islands
     pub n_islands: u32,
     /// Number of 8-bit channels per pixel
     pub channels: Channels,
@@ -34,6 +36,7 @@ impl Default for Header {
         Self {
             width: 1,
             height: 1,
+            n_encode: 0,
             n_islands: 0,
             channels: Channels::default(),
             colorspace: ColorSpace::default(),
@@ -45,13 +48,13 @@ impl Header {
     /// Creates a new header and validates image dimensions.
     #[inline]
     pub const fn try_new(
-        width: u32, height: u32, n_islands: u32, channels: Channels, colorspace: ColorSpace,
+        width: u32, height: u32, n_encode: u32, n_islands: u32, channels: Channels, colorspace: ColorSpace,
     ) -> Result<Self> {
         let n_pixels = (width as usize).saturating_mul(height as usize);
         if unlikely(n_pixels == 0 || n_pixels > QOI_PIXELS_MAX) {
             return Err(Error::InvalidImageDimensions { width, height });
         }
-        Ok(Self { width, height, n_islands, channels, colorspace })
+        Ok(Self { width, height, n_encode, n_islands, channels, colorspace })
     }
 
     /// Creates a new header with modified channels.
@@ -75,9 +78,10 @@ impl Header {
         out[..4].copy_from_slice(&QOI_MAGIC.to_be_bytes());
         out[4..8].copy_from_slice(&self.width.to_be_bytes());
         out[8..12].copy_from_slice(&self.height.to_be_bytes());
-        out[12..16].copy_from_slice(&self.n_islands.to_be_bytes());
-        out[16] = self.channels.into();
-        out[17] = self.colorspace.into();
+        out[12..16].copy_from_slice(&self.n_encode.to_be_bytes());
+        out[16..20].copy_from_slice(&self.n_islands.to_be_bytes());
+        out[20] = self.channels.into();
+        out[21] = self.colorspace.into();
         out
     }
 
@@ -88,17 +92,18 @@ impl Header {
         if unlikely(data.len() < QOI_HEADER_SIZE) {
             return Err(Error::UnexpectedBufferEnd);
         }
-        let v = cast_slice::<_, [u8; 4]>(&data[..16]);
+        let v = cast_slice::<_, [u8; 4]>(&data[..20]);
         let magic = u32::from_be_bytes(v[0]);
         let width = u32::from_be_bytes(v[1]);
         let height = u32::from_be_bytes(v[2]);
-        let n_islands = u32::from_be_bytes(v[3]);
-        let channels = data[16].try_into()?;
-        let colorspace = data[17].try_into()?;
+        let n_encode = u32::from_be_bytes(v[3]);
+        let n_islands = u32::from_be_bytes(v[4]);
+        let channels = data[20].try_into()?;
+        let colorspace = data[21].try_into()?;
         if unlikely(magic != QOI_MAGIC) {
             return Err(Error::InvalidMagic { magic });
         }
-        Self::try_new(width, height, n_islands, channels, colorspace)
+        Self::try_new(width, height, n_encode, n_islands, channels, colorspace)
     }
 
     /// Returns a number of pixels in the image.
@@ -111,6 +116,12 @@ impl Header {
     #[inline]
     pub const fn n_islands(&self) -> usize {
         self.n_islands as usize
+    }
+
+    /// Returns a number of encoded for the image.
+    #[inline]
+    pub const fn n_encode(&self) -> usize {
+        self.n_encode as usize
     }
 
     /// Returns the total number of bytes in the raw pixel array.

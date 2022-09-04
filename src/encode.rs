@@ -170,7 +170,7 @@ impl<'a> Encoder<'a> {
     pub fn new(data: &'a (impl AsRef<[u8]> + ?Sized), width: u32, height: u32) -> Result<Self> {
         let data = data.as_ref();
         let mut header =
-            Header::try_new(width, height, 0,Channels::default(), ColorSpace::default())?;
+            Header::try_new(width, height, 0, 0,Channels::default(), ColorSpace::default())?;
         let size = data.len();
         let n_channels = size / header.n_pixels();
         if header.n_pixels() * n_channels != size {
@@ -221,10 +221,11 @@ impl<'a> Encoder<'a> {
             return Err(Error::OutputBufferTooSmall { size: buf.len(), required: size_required });
         }
         let (head, tail) = buf.split_at_mut(QOI_HEADER_SIZE); // can't panic
-        let (n_written, n_islands) = encode_impl_all(BytesMut::new(tail), self.data, &self.header)?;
+        let (n_encode, n_islands) = encode_impl_all(BytesMut::new(tail), self.data, &self.header)?;
+        self.header.n_encode = n_encode as u32;
         self.header.n_islands = n_islands as u32;
         head.copy_from_slice(&self.header.encode());
-        Ok(QOI_HEADER_SIZE + n_written)
+        Ok(QOI_HEADER_SIZE + n_encode)
     }
 
     /// Encodes the image into a newly allocated vector of bytes and returns it.

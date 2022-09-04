@@ -23,7 +23,7 @@ const QOI_OP_DIFF_END: u8 = QOI_OP_DIFF | 0x3f;
 const QOI_OP_LUMA_END: u8 = QOI_OP_LUMA | 0x3f;
 
 #[inline]
-fn decode_impl_slice<const N: usize, const RGBA: bool>(data: &[u8], out: &mut [u8], n_pixels: u32) -> Result<usize>
+fn decode_impl_slice<const N: usize, const RGBA: bool>(data: &[u8], out: &mut [u8], n_encode: u32) -> Result<usize>
 where
     Pixel<N>: SupportedChannels,
     [u8; N]: Pod,
@@ -36,10 +36,12 @@ where
     let mut px = Pixel::<N>::new().with_a(0xff);
     let mut px_rgba: Pixel<4>;
 
-    let mut pixel_count = 0;
+    let mut encode_count = 0;
     while let [px_out, ptail @ ..] = pixels {
-        pixel_count += 1;
-        if pixel_count > n_pixels {
+        encode_count += 1;
+        println!("{}, {}", encode_count, n_encode);
+        if encode_count > n_encode {
+            println!("{}", encode_count);
             break
         }
         pixels = ptail;
@@ -100,13 +102,13 @@ where
 
 #[inline]
 fn decode_impl_slice_all(
-    data: &[u8], out: &mut [u8], n_pixels: u32, channels: u8, src_channels: u8,
+    data: &[u8], out: &mut [u8], n_encode: u32, channels: u8, src_channels: u8,
 ) -> Result<usize> {
     match (channels, src_channels) {
-        (3, 3) => decode_impl_slice::<3, false>(data, out, n_pixels),
-        (3, 4) => decode_impl_slice::<3, true>(data, out, n_pixels),
-        (4, 3) => decode_impl_slice::<4, false>(data, out, n_pixels),
-        (4, 4) => decode_impl_slice::<4, true>(data, out, n_pixels),
+        (3, 3) => decode_impl_slice::<3, false>(data, out, n_encode),
+        (3, 4) => decode_impl_slice::<3, true>(data, out, n_encode),
+        (4, 3) => decode_impl_slice::<4, false>(data, out, n_encode),
+        (4, 4) => decode_impl_slice::<4, true>(data, out, n_encode),
         _ => {
             cold();
             Err(Error::InvalidChannels { channels })
@@ -234,7 +236,7 @@ pub fn decode_header(data: impl AsRef<[u8]>) -> Result<Header> {
 #[doc(hidden)]
 pub trait Reader: Sized {
     fn decode_header(&mut self) -> Result<Header>;
-    fn decode_image(&mut self, out: &mut [u8], n_pixels: u32, channels: u8, src_channels: u8) -> Result<()>;
+    fn decode_image(&mut self, out: &mut [u8], n_encode: u32, channels: u8, src_channels: u8) -> Result<()>;
     fn decode_islands(&mut self, n_islands: u32) -> Result<Islands>;
 }
 
@@ -261,8 +263,8 @@ impl<'a> Reader for Bytes<'a> {
     }
 
     #[inline]
-    fn decode_image(&mut self, out: &mut [u8], n_pixels: u32, channels: u8, src_channels: u8) -> Result<()> {
-        let n_read = decode_impl_slice_all(&self.0[QOI_HEADER_SIZE..], out, n_pixels, channels, src_channels)?;
+    fn decode_image(&mut self, out: &mut [u8], n_encode: u32, channels: u8, src_channels: u8) -> Result<()> {
+        let n_read = decode_impl_slice_all(&self.0, out, n_encode, channels, src_channels)?;
         self.0 = &self.0[n_read..];
         Ok(())
     }
@@ -382,7 +384,7 @@ impl<R: Reader> Decoder<R> {
         if unlikely(buf.len() < size) {
             return Err(Error::OutputBufferTooSmall { size: buf.len(), required: size });
         }
-        self.reader.decode_image(buf, self.header.n_pixels() as u32, self.channels.as_u8(), self.header.channels.as_u8())?;
+        self.reader.decode_image(buf, self.header.n_encode() as u32, self.channels.as_u8(), self.header.channels.as_u8())?;
         Ok(size)
     }
 
