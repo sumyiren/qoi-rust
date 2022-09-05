@@ -8,7 +8,6 @@ use bytemuck::{cast_slice_mut, Pod};
 
 use crate::consts::{
     QOI_HEADER_SIZE, QOI_OP_DIFF, QOI_OP_INDEX, QOI_OP_LUMA, QOI_OP_RGB, QOI_OP_RGBA, QOI_OP_RUN,
-    QOI_PADDING, QOI_PADDING_SIZE,
 };
 use crate::error::{Error, Result};
 use crate::header::Header;

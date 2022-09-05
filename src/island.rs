@@ -1,14 +1,8 @@
-use core::convert::TryInto;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::mem::transmute;
-
 use bytemuck::cast_slice;
-
-use crate::consts::{QOI_HEADER_SIZE, QOI_MAGIC, QOI_PIXELS_MAX};
-use crate::encode_max_len;
-use crate::error::{Error, Result};
-use crate::types::{Channels, ColorSpace};
-use crate::utils::{unlikely, Writer};
+use crate::error::{Result};
+use crate::utils::{Writer};
 
 /// Image Islands: dimensions, channels, color space.
 pub type Point = (u32, u32);
@@ -107,7 +101,7 @@ impl Islands {
     }
 }
 
-fn bfs(points: &HashSet<Point>, width: u32, height: u32, used_points: &mut HashSet<Point>, island: &mut Island, point: &Point) {
+fn bfs(points: &HashSet<Point>, _width: u32, _height: u32, used_points: &mut HashSet<Point>, island: &mut Island, point: &Point) {
     let mut q = VecDeque::new();
     q.push_back(point.clone());
 
@@ -115,7 +109,7 @@ fn bfs(points: &HashSet<Point>, width: u32, height: u32, used_points: &mut HashS
         if points.contains(&point) && !used_points.contains(&point) {
             used_points.insert(point.clone());
 
-            if let Some(mut top_left) = island.top_left {
+            if let Some(top_left) = island.top_left {
                 if point.0 < top_left.0 {
                     island.top_left = Some((point.0, top_left.1));
                 }
@@ -126,7 +120,7 @@ fn bfs(points: &HashSet<Point>, width: u32, height: u32, used_points: &mut HashS
                 island.top_left = Some(point.clone());
             }
 
-            if let Some(mut btm_right) = island.btm_right {
+            if let Some(btm_right) = island.btm_right {
                 if point.0 > btm_right.0 {
                     island.btm_right = Some((point.0, btm_right.1));
                 }

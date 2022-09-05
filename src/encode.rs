@@ -2,9 +2,6 @@
 use alloc::{vec, vec::Vec};
 use core::convert::TryFrom;
 use std::collections::HashSet;
-#[cfg(feature = "std")]
-use std::io::Write;
-
 use bytemuck::Pod;
 
 use crate::consts::{QOI_HEADER_SIZE, QOI_OP_INDEX, QOI_OP_RUN, QOI_PADDING, QOI_PADDING_SIZE};
@@ -13,8 +10,7 @@ use crate::header::Header;
 use crate::island::{Islands, Point};
 use crate::pixel::{Pixel, SupportedChannels};
 use crate::types::{Channels, ColorSpace};
-#[cfg(feature = "std")]
-use crate::utils::GenericWriter;
+
 use crate::utils::{unlikely, BytesMut, Writer};
 
 #[allow(clippy::cast_possible_truncation, unused_assignments, unused_variables)]
