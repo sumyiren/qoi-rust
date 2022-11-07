@@ -24,6 +24,8 @@ reference = []  # follows reference encoder implementation precisely, but may be
 
 [dependencies]
 bytemuck = "1.7"
+rayon = "1.5.3"
+crossbeam-channel = "0.5.6"
 
 [workspace]
 members = ["libqoi", "bench", "experiment"]

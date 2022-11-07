@@ -3,6 +3,10 @@ use std::mem::transmute;
 use bytemuck::cast_slice;
 use crate::error::{Result};
 use crate::utils::{Writer};
+use rayon::prelude::*;
+use std::thread;
+use std::sync::mpsc::channel;
+use crossbeam_channel::unbounded;
 
 /// Image Islands: dimensions, channels, color space.
 pub type Point = (u32, u32);
@@ -22,9 +26,9 @@ pub struct Islands {
 impl Islands {
     /// Creates a island map
     #[inline]
-    pub(crate) fn try_new(points: &HashSet<Point>, width: u32, height: u32) -> Result<Self> {
+    pub(crate) fn find_islands(points: &HashSet<Point>) -> Vec<Island> {
 
-        let mut islands: HashSet<Island> = HashSet::new();
+        let mut islands: Vec<Island> = Vec::new();
         let mut used_points: HashSet<Point> = HashSet::new();
 
         for point in points {
@@ -33,27 +37,24 @@ impl Islands {
                     top_left: None,
                     btm_right: None
                 };
-                bfs(&points, width, height, &mut used_points, &mut island, point);
+                bfs(&points, &mut used_points, &mut island, point);
                 // println!("island:{}, {}, {}, {}", island.top_left.unwrap().0, island.top_left.unwrap().1,
                 //          island.btm_right.unwrap().0, island.btm_right.unwrap().1);
                 if island.top_left != None && island.btm_right != None {
-                    islands.insert(island);
+                    islands.push(island);
                 }
                 // println!("points - used_points:{}, {}", points.len(), used_points.len());
             }
         }
 
-
-        Ok(Islands {
-            islands
-        })
+        islands
     }
 
     /// Serializes the header into a bytes array.
     #[inline]
-    pub(crate) fn encode<W: Writer>(&self, mut buf: W) -> Result<W> {
+    pub(crate) fn encode<W: Writer>(mut buf: W, islands: &Vec<Island>) -> Result<W> {
 
-        for island in &self.islands {
+        for island in islands {
             let top_left = island.top_left.unwrap();
             let btm_right = island.btm_right.unwrap();
 
@@ -101,7 +102,7 @@ impl Islands {
     }
 }
 
-fn bfs(points: &HashSet<Point>, _width: u32, _height: u32, used_points: &mut HashSet<Point>, island: &mut Island, point: &Point) {
+fn bfs(points: &HashSet<Point>, used_points: &mut HashSet<Point>, island: &mut Island, point: &Point) {
     let mut q = VecDeque::new();
     q.push_back(point.clone());
 

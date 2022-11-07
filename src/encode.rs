@@ -3,10 +3,15 @@ use alloc::{vec, vec::Vec};
 use core::convert::TryFrom;
 use std::collections::HashSet;
 use bytemuck::Pod;
+use rayon::prelude::*;
+use std::thread;
+use std::sync::mpsc::channel;
+use crossbeam_channel::unbounded;
 
 use crate::consts::{QOI_HEADER_SIZE, QOI_OP_INDEX, QOI_OP_RUN, QOI_PADDING, QOI_PADDING_SIZE};
 use crate::error::{Error, Result};
 use crate::header::Header;
+use crate::Island;
 use crate::island::{Islands, Point};
 use crate::pixel::{Pixel, SupportedChannels};
 use crate::types::{Channels, ColorSpace};
@@ -26,12 +31,18 @@ where
     let mut hash_prev = px_prev.hash_index();
     let mut run = 0_u8;
     let mut px = Pixel::<N>::new().with_a(0xff);
+    // let mut zero_px = Pixel::<N>::new();
+    // zero_px.update_rgba(255, 255, 255, 0);
     let zero_px = Pixel::<N>::new();
     let mut index_allowed = false;
 
     let n_pixels = data.len() / N;
 
-    let mut points: HashSet<Point> = HashSet::new();
+    let threads = 8;
+    let mut points: Vec<HashSet<Point>> = (0 .. threads)
+      .map(|_| HashSet::<Point>::new())
+      .collect();
+
     let mut row = 0;
     let mut col = 0;
     //
@@ -50,7 +61,7 @@ where
         px.read(chunk);
 
         if px != zero_px {
-            points.insert((row, col as u32));
+            points[(row % threads) as usize].insert((row, col as u32));
         }
 
         if px == px_prev {
@@ -94,13 +105,22 @@ where
         }
     }
 
-    let islands = Islands::try_new(&points, header.width, header.height)?;
-    buf = islands.encode(buf)?;
+    let islands: Vec<Island> = points.par_iter()
+      .map(|x| Islands::find_islands(x))
+      .reduce(|| Vec::new(),
+              |mut acc, itr| {
+                  acc.extend(itr);
+                  acc
+              }
+      );
+
+    // let islands = Islands::find_islands(&points, header.width, header.height)?;
+    buf = Islands::encode(buf, &islands)?;
     // buf = buf.write_many(image_encoding_vec.as_mut())?;
     buf = buf.write_many(&QOI_PADDING)?;
 
     // println!("number of islands:{}", islands.islands.len());
-    Ok((cap.saturating_sub(buf.capacity()), islands.islands.len()))
+    Ok((cap.saturating_sub(buf.capacity()), islands.len()))
 }
 
 #[inline]
