@@ -4,9 +4,9 @@ use bytemuck::cast_slice;
 use crate::error::{Result};
 use crate::utils::{Writer};
 use rayon::prelude::*;
-use std::thread;
-use std::sync::mpsc::channel;
-use crossbeam_channel::unbounded;
+
+
+
 
 /// Image Islands: dimensions, channels, color space.
 pub type Point = (u32, u32);

@@ -4,9 +4,9 @@ use core::convert::TryFrom;
 use std::collections::HashSet;
 use bytemuck::Pod;
 use rayon::prelude::*;
-use std::thread;
-use std::sync::mpsc::channel;
-use crossbeam_channel::unbounded;
+
+
+
 
 use crate::consts::{QOI_HEADER_SIZE, QOI_OP_INDEX, QOI_OP_RUN, QOI_PADDING, QOI_PADDING_SIZE};
 use crate::error::{Error, Result};
