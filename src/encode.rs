@@ -19,7 +19,7 @@ use crate::types::{Channels, ColorSpace};
 use crate::utils::{unlikely, BytesMut, Writer};
 
 #[allow(clippy::cast_possible_truncation, unused_assignments, unused_variables)]
-fn encode_impl<W: Writer, const N: usize>(mut buf: W, data: &[u8], header: &Header) -> Result<(usize, usize)>
+fn encode_impl<W: Writer, const N: usize>(mut buf: W, data: &[u8], header: &Header, encode_islands:bool) -> Result<(usize, usize)>
 where
     Pixel<N>: SupportedChannels,
     [u8; N]: Pod,
@@ -105,14 +105,17 @@ where
         }
     }
 
-    let islands: Vec<Island> = points.par_iter()
-      .map(|x| Islands::find_islands(x))
-      .reduce(|| Vec::new(),
-              |mut acc, itr| {
-                  acc.extend(itr);
-                  acc
-              }
-      );
+    let mut islands: Vec<Island> = vec![];
+    if encode_islands {
+        islands = points.par_iter()
+          .map(|x| Islands::find_islands(x))
+          .reduce(|| Vec::new(),
+                  |mut acc, itr| {
+                      acc.extend(itr);
+                      acc
+                  }
+          );
+    }
 
     // let islands = Islands::find_islands(&points, header.width, header.height)?;
     buf = Islands::encode(buf, &islands)?;
@@ -124,10 +127,10 @@ where
 }
 
 #[inline]
-fn encode_impl_all<W: Writer>(out: W, data: &[u8], header: &Header) -> Result<(usize, usize)> {
+fn encode_impl_all<W: Writer>(out: W, data: &[u8], header: &Header, encode_islands: bool) -> Result<(usize, usize)> {
     match header.channels {
-        Channels::Rgb => encode_impl::<_, 3>(out, data, header),
-        Channels::Rgba => encode_impl::<_, 4>(out, data, header),
+        Channels::Rgb => encode_impl::<_, 3>(out, data, header, encode_islands),
+        Channels::Rgba => encode_impl::<_, 4>(out, data, header, encode_islands),
     }
 }
 
@@ -149,16 +152,16 @@ pub fn encode_max_len(width: u32, height: u32, channels: impl Into<u8>) -> usize
 /// Returns the total number of bytes written.
 #[inline]
 pub fn encode_to_buf(
-    buf: impl AsMut<[u8]>, data: impl AsRef<[u8]>, width: u32, height: u32,
+    buf: impl AsMut<[u8]>, data: impl AsRef<[u8]>, width: u32, height: u32, encode_islands: bool
 ) -> Result<usize> {
-    Encoder::new(&data, width, height)?.encode_to_buf(buf)
+    Encoder::new(&data, width, height)?.encode_to_buf(buf, encode_islands)
 }
 
 /// Encode the image into a newly allocated vector.
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[inline]
-pub fn encode_to_vec(data: impl AsRef<[u8]>, width: u32, height: u32) -> Result<Vec<u8>> {
-    Encoder::new(&data, width, height)?.encode_to_vec()
+pub fn encode_to_vec(data: impl AsRef<[u8]>, width: u32, height: u32, encode_islands: bool) -> Result<Vec<u8>> {
+    Encoder::new(&data, width, height)?.encode_to_vec(encode_islands)
 }
 
 /// Encode the image into a newly allocated vector.
@@ -230,14 +233,14 @@ impl<'a> Encoder<'a> {
     ///
     /// The minimum size of the buffer can be found via [`Encoder::required_buf_len`].
     #[inline]
-    pub fn encode_to_buf(&mut self, mut buf: impl AsMut<[u8]>) -> Result<usize> {
+    pub fn encode_to_buf(&mut self, mut buf: impl AsMut<[u8]>, encode_islands:bool) -> Result<usize> {
         let buf = buf.as_mut();
         let size_required = self.required_buf_len();
         if unlikely(buf.len() < size_required) {
             return Err(Error::OutputBufferTooSmall { size: buf.len(), required: size_required });
         }
         let (head, tail) = buf.split_at_mut(QOI_HEADER_SIZE); // can't panic
-        let (n_encode, n_islands) = encode_impl_all(BytesMut::new(tail), self.data, &self.header)?;
+        let (n_encode, n_islands) = encode_impl_all(BytesMut::new(tail), self.data, &self.header, encode_islands)?;
         self.header.n_encode = n_encode as u32;
         self.header.n_islands = n_islands as u32;
         head.copy_from_slice(&self.header.encode());
@@ -247,9 +250,9 @@ impl<'a> Encoder<'a> {
     /// Encodes the image into a newly allocated vector of bytes and returns it.
     #[cfg(any(feature = "alloc", feature = "std"))]
     #[inline]
-    pub fn encode_to_vec(&mut self) -> Result<Vec<u8>> {
+    pub fn encode_to_vec(&mut self, encode_islands: bool) -> Result<Vec<u8>> {
         let mut out = vec![0_u8; self.required_buf_len()];
-        let size = self.encode_to_buf(&mut out)?;
+        let size = self.encode_to_buf(&mut out, encode_islands)?;
         out.truncate(size);
         Ok(out)
     }
